@@ -16,6 +16,9 @@ from boto3 import session
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
 from tqdm_loggable.auto import tqdm
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+
 
 logger = logging.getLogger("runpod upload utility")
 FMT = "%(filename)-20s:%(lineno)-4d %(asctime)s %(message)s"
@@ -127,21 +130,11 @@ def files(job_id, file_list):
     Uploads a list of files in parallel.
     Once all files are uploaded, the function returns the presigned URLs list.
     '''
-    upload_progress = []  # List of threads
-    file_urls = [None] * len(file_list)  # Resulting list of URLs for each file
+    num_threads = min(multiprocessing.cpu_count(), len(file_list))
+    upload_func = partial(upload_image, job_id)
 
-    for index, selected_file in enumerate(file_list):
-        new_upload = threading.Thread(
-            target=upload_image,
-            args=(job_id, selected_file, index, file_urls)
-        )
-
-        new_upload.start()
-        upload_progress.append(new_upload)
-
-    # Wait for all uploads to finish
-    for upload in upload_progress:
-        upload.join()
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        file_urls = list(executor.map(upload_func, file_list))
 
     return file_urls
 
